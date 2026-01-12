@@ -3,7 +3,7 @@
 
 	"extends": [
 		"config:best-practices",
-		":assignee(JustArchi)",
+		":assignee(TheRhanderson)",
 		":automergeBranch",
 		":automergeDigest",
 		":automergeMinor",
