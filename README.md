@@ -113,7 +113,7 @@ CREPORTABUSE 14 https://steamcommunity.com/profiles/76561198000000000 Account+wa
 ```
 This sends 5 abuse reports with the reason "Account was compromised".
 
-> 🛡️ This feature was removed from this version because it does not align with the developer’s ethical values.
+> 🛡️ This feature was removed from this repository.
 
 ---
 
