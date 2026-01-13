@@ -293,21 +293,19 @@ internal static class CSharedFiles {
 
 		// Listas para armazenar resultados
 		List<ResultadoCombinado> resultados = [];
-		int botsConsiderados = 0;  // Conta todos os bots válidos (online), incluindo os que já enviaram
 		int likesEnviados = 0;
 		int favsEnviados = 0;
 		int likesFalhados = 0;
 		int favsFalhados = 0;
-		int jaEnviadosAnteriormente = 0;
-		bool precisaDelay = false;  // Controla se precisa aplicar delay antes da próxima requisição
+		bool precisaDelay = false;
 
 		foreach (Bot bot in bots) {
-			// Para se já atingiu o número desejado de bots considerados
+			// Para se já atingiu o número desejado de AMBOS (likes E favs)
 			if (likesEnviados >= numEnviosDesejados && favsEnviados >= numEnviosDesejados) {
 				break;
 			}
 
-			// Pula bots offline (não conta como considerado)
+			// Pula bots offline
 			if (!bot.IsConnectedAndLoggedOn) {
 				continue;
 			}
@@ -316,18 +314,9 @@ internal static class CSharedFiles {
 			bool? jaEnviouLike = await DbHelper.VerificarEnvioItem(bot.BotName, "SHAREDLIKE", sharedfileId).ConfigureAwait(false);
 			bool? jaEnviouFav = await DbHelper.VerificarEnvioItem(bot.BotName, "SHAREDFAV", sharedfileId).ConfigureAwait(false);
 
-			// Se já enviou ambos, registra e pula sem delay
+			// Se já enviou ambos, simplesmente pula para o próximo bot
 			if (jaEnviouLike == true && jaEnviouFav == true) {
-				jaEnviadosAnteriormente++;
-				resultados.Add(new ResultadoCombinado {
-					BotName = bot.BotName,
-					LikeSucesso = false,
-					LikeMensagem = "Já enviado",
-					FavSucesso = false,
-					FavMensagem = "Já enviado",
-					JaEnviado = true
-				});
-				continue;  // Não precisa de delay, não fez requisição HTTP
+				continue;
 			}
 
 			// Aplica delay APENAS se a requisição anterior foi uma requisição HTTP real
@@ -352,8 +341,6 @@ internal static class CSharedFiles {
 					continue;
 				}
 
-				// Conta o bot como considerado
-				botsConsiderados++;
 				resultados.Add(resultado);
 
 				if (resultado.LikeSucesso) {
@@ -377,7 +364,7 @@ internal static class CSharedFiles {
 		}
 
 		// Monta a resposta final
-		return MontarRespostaFinal(resultados, likesEnviados, favsEnviados, likesFalhados, favsFalhados, numEnviosDesejados, jaEnviadosAnteriormente);
+		return MontarRespostaFinal(resultados, likesEnviados, favsEnviados, likesFalhados, favsFalhados, numEnviosDesejados);
 	}
 
 	/// <summary>
@@ -389,24 +376,19 @@ internal static class CSharedFiles {
 		int favsOk,
 		int likesFail,
 		int favsFail,
-		int desejados,
-		int jaEnviados) {
+		int desejados) {
 
 		List<string> linhas = [];
 
 		// Adiciona cada resultado
 		foreach (ResultadoCombinado resultado in resultados) {
-			if (resultado.JaEnviado) {
-				linhas.Add($"<{resultado.BotName}> [=] Já enviado anteriormente");
-			} else {
-				string likeStatus = resultado.LikeSucesso ? "+" : "-";
-				string favStatus = resultado.FavSucesso ? "+" : "-";
+			string likeStatus = resultado.LikeSucesso ? "+" : "-";
+			string favStatus = resultado.FavSucesso ? "+" : "-";
 
-				string likeDetalhe = resultado.LikeSucesso ? "LIKE" : resultado.LikeMensagem;
-				string favDetalhe = resultado.FavSucesso ? "FAV" : resultado.FavMensagem;
+			string likeDetalhe = resultado.LikeSucesso ? "LIKE" : resultado.LikeMensagem;
+			string favDetalhe = resultado.FavSucesso ? "FAV" : resultado.FavMensagem;
 
-				linhas.Add($"<{resultado.BotName}> [{likeStatus}] {likeDetalhe} | [{favStatus}] {favDetalhe}");
-			}
+			linhas.Add($"<{resultado.BotName}> [{likeStatus}] {likeDetalhe} | [{favStatus}] {favDetalhe}");
 		}
 
 		// Adiciona resumo final
@@ -414,11 +396,16 @@ internal static class CSharedFiles {
 		linhas.Add($"Likes: {likesOk}/{desejados} (Falhas: {likesFail})");
 		linhas.Add($"Favs:  {favsOk}/{desejados} (Falhas: {favsFail})");
 
-		if (jaEnviados > 0) {
-			linhas.Add($"Ignorados (já enviados): {jaEnviados}");
+		// Aviso se não conseguiu atingir o número desejado
+		if (likesOk < desejados || favsOk < desejados) {
+			int faltandoLikes = Math.Max(0, desejados - likesOk);
+			int faltandoFavs = Math.Max(0, desejados - favsOk);
+			if (faltandoLikes > 0 || faltandoFavs > 0) {
+				linhas.Add($"Aviso: Faltaram likes={faltandoLikes}, favs={faltandoFavs} (já enviados ou indisponíveis)");
+			}
 		}
 
-		ASF.ArchiLogger.LogGenericInfo($"Socialboost|SHAREDFILES => Concluido! Likes: {likesOk}, Favs: {favsOk}, Ignorados: {jaEnviados}");
+		ASF.ArchiLogger.LogGenericInfo($"Socialboost|SHAREDFILES => Concluído! Likes: {likesOk}, Favs: {favsOk}");
 
 		return string.Join(Environment.NewLine, linhas);
 	}

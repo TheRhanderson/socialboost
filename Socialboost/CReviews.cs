@@ -167,7 +167,7 @@ internal static class CReviews {
 			return access >= EAccess.Owner ? FormatarResposta("Tipo inválido. Use: 1 (útil), 2 (engraçado), 3 (não útil)") : null;
 		}
 
-		TipoAvaliacao tipo = (TipoAvaliacao) tipoInt;
+		TipoAvaliacao tipo = (TipoAvaliacao)tipoInt;
 
 		if (!int.TryParse(quantidadeDesejada, out int numEnviosDesejados) || numEnviosDesejados <= 0) {
 			return access >= EAccess.Owner ? FormatarResposta("Quantidade inválida. Use um número positivo.") : null;
@@ -198,24 +198,21 @@ internal static class CReviews {
 
 		if (string.IsNullOrEmpty(idReview)) {
 			return access >= EAccess.Owner
-				? FormatarResposta($"Erro ao obter ID da review a partir da URL")
+				? FormatarResposta("Erro ao obter ID da review a partir da URL")
 				: null;
 		}
 
 		// Listas para armazenar resultados
 		List<ResultadoEnvio> resultados = [];
-		int botsConsiderados = 0;
 		int enviosBemSucedidos = 0;
 		int enviosFalhados = 0;
-		int jaEnviadosAnteriormente = 0;
 		bool precisaDelay = false;
 
 		foreach (Bot bot in bots) {
-			// Para se já atingiu o número desejado
+			// Para se já atingiu o número desejado de ENVIOS BEM SUCEDIDOS
 			if (enviosBemSucedidos >= numEnviosDesejados) {
 				break;
 			}
-
 
 			// Pula bots offline ou com conta limitada
 			if (!bot.IsConnectedAndLoggedOn || bot.IsAccountLimited) {
@@ -230,26 +227,12 @@ internal static class CReviews {
 			// - Se não votou antes (jaEnviou == false), não faz sentido enviar "não útil"
 			if (tipo == TipoAvaliacao.NaoUtil) {
 				if (jaEnviou != true) {
-					// Não votou antes, não pode desfazer voto
-					jaEnviadosAnteriormente++;
-					resultados.Add(new ResultadoEnvio {
-						BotName = bot.BotName,
-						Sucesso = false,
-						Mensagem = "Não votou antes",
-						JaEnviado = true
-					});
+					// Não votou antes, não pode desfazer voto - apenas pula para o próximo bot
 					continue;
 				}
 			} else {
-				// Para "Útil" e "Engraçado", se já enviou, pula
+				// Para "Útil" e "Engraçado", se já enviou, pula para o próximo bot
 				if (jaEnviou == true) {
-					jaEnviadosAnteriormente++;
-					resultados.Add(new ResultadoEnvio {
-						BotName = bot.BotName,
-						Sucesso = false,
-						Mensagem = "Já enviado",
-						JaEnviado = true
-					});
 					continue;
 				}
 			}
@@ -270,14 +253,11 @@ internal static class CReviews {
 					tipo
 				).ConfigureAwait(false);
 
-				botsConsiderados++;
-
 				// Bot ficou offline durante o processamento
 				if (resultado.BotOffline || resultado.ContaLimitada) {
 					continue;
 				}
 
-				botsConsiderados++;
 				resultados.Add(resultado);
 
 				if (resultado.Sucesso) {
@@ -295,7 +275,7 @@ internal static class CReviews {
 		}
 
 		// Monta a resposta final
-		return MontarRespostaFinal(resultados, enviosBemSucedidos, enviosFalhados, numEnviosDesejados, jaEnviadosAnteriormente, tipo);
+		return MontarRespostaFinal(resultados, enviosBemSucedidos, enviosFalhados, numEnviosDesejados, tipo);
 	}
 
 	/// <summary>
@@ -306,7 +286,6 @@ internal static class CReviews {
 		int sucedidos,
 		int falhados,
 		int desejados,
-		int jaEnviados,
 		TipoAvaliacao tipo) {
 
 		List<string> linhas = [];
@@ -314,26 +293,25 @@ internal static class CReviews {
 
 		// Adiciona cada resultado
 		foreach (ResultadoEnvio resultado in resultados) {
-			if (resultado.JaEnviado) {
-				string msgIgnorado = tipo == TipoAvaliacao.NaoUtil ? "Não votou antes" : "Já enviado anteriormente";
-				linhas.Add($"<{resultado.BotName}> [=] {msgIgnorado}");
-			} else {
-				string status = resultado.Sucesso ? "+" : "-";
-				string detalhes = resultado.Sucesso ? nomeTipo : resultado.Mensagem;
-				linhas.Add($"<{resultado.BotName}> [{status}] {detalhes}");
-			}
+			string status = resultado.Sucesso ? "+" : "-";
+			string detalhes = resultado.Sucesso ? nomeTipo : resultado.Mensagem;
+			linhas.Add($"<{resultado.BotName}> [{status}] {detalhes}");
 		}
 
 		// Adiciona resumo final
 		linhas.Add("---------------------------------");
 		linhas.Add($"Enviados: {sucedidos}/{desejados} | Falhas: {falhados}");
 
-		if (jaEnviados > 0) {
-			string msgIgnorados = tipo == TipoAvaliacao.NaoUtil ? "Ignorados (não votaram antes)" : "Ignorados (já enviados)";
-			linhas.Add($"{msgIgnorados}: {jaEnviados}");
+		// Aviso se não conseguiu atingir o número desejado
+		if (sucedidos < desejados) {
+			int faltando = desejados - sucedidos;
+			string motivo = tipo == TipoAvaliacao.NaoUtil 
+				? "bots não votaram antes" 
+				: "bots já votaram ou indisponíveis";
+			linhas.Add($"Aviso: Faltaram {faltando} ({motivo})");
 		}
 
-		ASF.ArchiLogger.LogGenericInfo($"Socialboost|REVIEWS|{nomeTipo} => Concluído! Sucesso: {sucedidos}, Falhas: {falhados}, Ignorados: {jaEnviados}");
+		ASF.ArchiLogger.LogGenericInfo($"Socialboost|REVIEWS|{nomeTipo} => Concluído! Sucesso: {sucedidos}, Falhas: {falhados}");
 
 		return string.Join(Environment.NewLine, linhas);
 	}

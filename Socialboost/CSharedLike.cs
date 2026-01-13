@@ -169,15 +169,13 @@ internal static class CSharedLike {
 
 		// Listas para armazenar resultados
 		List<ResultadoEnvio> resultados = [];
-		int botsConsiderados = 0;
 		int enviosBemSucedidos = 0;
 		int enviosFalhados = 0;
-		int jaEnviadosAnteriormente = 0;
 		bool precisaDelay = false;
 
 		foreach (Bot bot in bots) {
-			// Para se já atingiu o número desejado
-			if (botsConsiderados >= numEnviosDesejados) {
+			// Para se já atingiu o número desejado de ENVIOS BEM SUCEDIDOS
+			if (enviosBemSucedidos >= numEnviosDesejados) {
 				break;
 			}
 
@@ -189,16 +187,8 @@ internal static class CSharedLike {
 			// Verifica ANTES se já enviou (sem fazer requisição HTTP)
 			bool? jaEnviou = await DbHelper.VerificarEnvioItem(bot.BotName, "SHAREDLIKE", sharedfileId).ConfigureAwait(false);
 
-			// Se já enviou, registra e pula sem delay
+			// Se já enviou, simplesmente pula para o próximo bot
 			if (jaEnviou == true) {
-				botsConsiderados++;
-				jaEnviadosAnteriormente++;
-				resultados.Add(new ResultadoEnvio {
-					BotName = bot.BotName,
-					Sucesso = false,
-					Mensagem = "Já enviado",
-					JaEnviado = true
-				});
 				continue;
 			}
 
@@ -221,7 +211,7 @@ internal static class CSharedLike {
 					continue;
 				}
 
-				botsConsiderados++;
+				
 				resultados.Add(resultado);
 
 				if (resultado.Sucesso) {
@@ -239,7 +229,7 @@ internal static class CSharedLike {
 		}
 
 		// Monta a resposta final
-		return MontarRespostaFinal(resultados, enviosBemSucedidos, enviosFalhados, numEnviosDesejados, jaEnviadosAnteriormente);
+		return MontarRespostaFinal(resultados, enviosBemSucedidos, enviosFalhados, numEnviosDesejados);
 	}
 
 	/// <summary>
@@ -249,31 +239,28 @@ internal static class CSharedLike {
 		List<ResultadoEnvio> resultados,
 		int sucedidos,
 		int falhados,
-		int desejados,
-		int jaEnviados) {
+		int desejados) {
 
 		List<string> linhas = [];
 
 		// Adiciona cada resultado
 		foreach (ResultadoEnvio resultado in resultados) {
-			if (resultado.JaEnviado) {
-				linhas.Add($"<{resultado.BotName}> [=] Já enviado anteriormente");
-			} else {
-				string status = resultado.Sucesso ? "+" : "-";
-				string detalhes = resultado.Sucesso ? "LIKE" : resultado.Mensagem;
-				linhas.Add($"<{resultado.BotName}> [{status}] {detalhes}");
-			}
+			string status = resultado.Sucesso ? "+" : "-";
+			string detalhes = resultado.Sucesso ? "LIKE" : resultado.Mensagem;
+			linhas.Add($"<{resultado.BotName}> [{status}] {detalhes}");
 		}
 
 		// Adiciona resumo final
 		linhas.Add("---------------------------------");
 		linhas.Add($"Enviados: {sucedidos}/{desejados} | Falhas: {falhados}");
 
-		if (jaEnviados > 0) {
-			linhas.Add($"Ignorados (já enviados): {jaEnviados}");
+		// Aviso se não conseguiu atingir o número desejado
+		if (sucedidos < desejados) {
+			int faltando = desejados - sucedidos;
+			linhas.Add($"Aviso: Faltaram {faltando} (já enviados ou indisponíveis)");
 		}
 
-		ASF.ArchiLogger.LogGenericInfo($"Socialboost|LIKE => Concluído! Sucesso: {sucedidos}, Falhas: {falhados}, Ignorados: {jaEnviados}");
+		ASF.ArchiLogger.LogGenericInfo($"Socialboost|LIKE => Concluído! Sucesso: {sucedidos}, Falhas: {falhados}");
 
 		return string.Join(Environment.NewLine, linhas);
 	}
