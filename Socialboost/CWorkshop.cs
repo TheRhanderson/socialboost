@@ -1,43 +1,56 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ArchiSteamFarm.Core;
 using ArchiSteamFarm.Localization;
 using ArchiSteamFarm.Steam;
 using ArchiSteamFarm.Steam.Interaction;
-using ArchiSteamFarm.Web.Responses;
 using Socialboost.Helpers;
 using static ArchiSteamFarm.Steam.Integration.ArchiWebHandler;
 
 namespace Socialboost;
 
-internal static class CSharedFav {
+internal static class CWorkshop {
 
-	// Intervalo entre requisições (3 segundos = 20 req/min, abaixo do limite de 25/min)
-	private static readonly TimeSpan IntervaloEntreRequisicoes = TimeSpan.FromSeconds(3);
+	// Intervalo entre requisições (1 segundo para workshop)
+	private static readonly TimeSpan IntervaloEntreRequisicoes = TimeSpan.FromSeconds(1);
 
 	// Semáforo para controlar o rate limiting global
 	private static readonly SemaphoreSlim RateLimitSemaphore = new(1, 1);
 
 	/// <summary>
-	/// Resultado do envio de favorito para um bot específico
+	/// Tipos de ação no workshop
+	/// </summary>
+	internal enum ETipoAcao {
+		Follow = 1,
+		Unfollow = 2
+	}
+
+	/// <summary>
+	/// Resultado do envio para um bot específico
 	/// </summary>
 	internal sealed class ResultadoEnvio {
 		public required string BotName { get; init; }
 		public required bool Sucesso { get; init; }
 		public required string Mensagem { get; init; }
 		public bool JaEnviado { get; init; }
-		public bool ContaLimitada { get; init; }
 		public bool BotOffline { get; init; }
 	}
 
 	/// <summary>
-	/// Envia favorito de um bot específico para o sharedfile
-	/// Versão interna que assume que verificação prévia já foi feita
+	/// Obtém o nome amigável do tipo de ação
 	/// </summary>
-	internal static async Task<ResultadoEnvio> EnviarFavoritoInterno(Bot bot, EAccess access, string id, string appId) {
+	private static string ObterNomeTipo(ETipoAcao tipo) => tipo switch {
+		ETipoAcao.Follow => "FOLLOW",
+		ETipoAcao.Unfollow => "UNFOLLOW",
+		_ => "DESCONHECIDO"
+	};
+
+	/// <summary>
+	/// Executa follow/unfollow no workshop de um usuário
+	/// </summary>
+	internal static async Task<ResultadoEnvio> ExecutarAcaoInterno(Bot bot, EAccess access, string urlPerfil, string steamIdAlvo, ETipoAcao tipo) {
 		// Verifica permissão
 		if (access < EAccess.Master) {
 			return new ResultadoEnvio {
@@ -57,25 +70,18 @@ internal static class CSharedFav {
 			};
 		}
 
-		// Nota: Favoritos funcionam com contas limitadas, então não verificamos IsAccountLimited
+		string nomeTipo = ObterNomeTipo(tipo);
+		bot.ArchiLogger.LogGenericInfo($"Socialboost|WORKSHOP|{nomeTipo} => {steamIdAlvo} (Enviando...)");
 
-		bot.ArchiLogger.LogGenericInfo($"Socialboost|SHAREDFAV => {id} (Enviando...)");
+		// Define URLs baseado na ação
+		Uri requestUrl = tipo == ETipoAcao.Follow
+			? new($"{urlPerfil}/followuser")
+			: new($"{urlPerfil}/unfollowuser");
 
-		Uri requestUrl = new(SteamCommunityURL, "/sharedfiles/favorite");
-		Uri requestViewPage = new(SteamCommunityURL, $"/sharedfiles/filedetails/?id={id}");
+		Uri requestViewPage = new($"{urlPerfil}/myworkshopfiles/");
 
-		// Visualiza a página se necessário (para contornar proteções do Steam)
-		bool? jaVisualizouParaLike = await DbHelper.VerificarEnvioItem(bot.BotName, "SHAREDLIKE", id).ConfigureAwait(false);
-		if (jaVisualizouParaLike != true) {
-			HtmlDocumentResponse? viewResponse = await VisualizarPagina(id, bot, requestViewPage).ConfigureAwait(false);
-			if (viewResponse == null) {
-				bot.ArchiLogger.LogGenericWarning($"Socialboost|SHAREDFAV => {id} (Falha ao visualizar página, tentando enviar mesmo assim...)");
-			}
-		}
-
-		Dictionary<string, string> data = new(2) {
-			{ "id", id },
-			{ "appid", appId }
+		Dictionary<string, string> data = new(1) {
+			{ "steamid", steamIdAlvo }
 		};
 
 		// Envia a requisição POST
@@ -87,13 +93,18 @@ internal static class CSharedFav {
 		).ConfigureAwait(false);
 
 		if (postSuccess) {
-			// Salva no banco de dados
-			bool? salvou = await DbHelper.AdicionarEnvioItem(bot.BotName, "SHAREDFAV", id).ConfigureAwait(false);
-			if (salvou != true) {
-				bot.ArchiLogger.LogGenericWarning($"Socialboost|SHAREDFAV => {id} (Favorito enviado, mas falha ao salvar no DB)");
+			// Para Unfollow, removemos o registro anterior
+			// Para Follow, adicionamos o registro
+			if (tipo == ETipoAcao.Unfollow) {
+				await DbHelper.RemoverItem(bot.BotName, "WORKSHOP", steamIdAlvo).ConfigureAwait(false);
+			} else {
+				bool? salvou = await DbHelper.AdicionarEnvioItem(bot.BotName, "WORKSHOP", steamIdAlvo).ConfigureAwait(false);
+				if (salvou != true) {
+					bot.ArchiLogger.LogGenericWarning($"Socialboost|WORKSHOP => {steamIdAlvo} (Enviado, mas falha ao salvar no DB)");
+				}
 			}
 
-			bot.ArchiLogger.LogGenericInfo($"Socialboost|SHAREDFAV => {id} (OK)");
+			bot.ArchiLogger.LogGenericInfo($"Socialboost|WORKSHOP|{nomeTipo} => {steamIdAlvo} (OK)");
 			return new ResultadoEnvio {
 				BotName = bot.BotName,
 				Sucesso = true,
@@ -101,7 +112,7 @@ internal static class CSharedFav {
 			};
 		}
 
-		bot.ArchiLogger.LogGenericError($"Socialboost|SHAREDFAV => {id} (FALHA: Erro HTTP)");
+		bot.ArchiLogger.LogGenericError($"Socialboost|WORKSHOP|{nomeTipo} => {steamIdAlvo} (FALHA: Erro HTTP)");
 		return new ResultadoEnvio {
 			BotName = bot.BotName,
 			Sucesso = false,
@@ -110,32 +121,21 @@ internal static class CSharedFav {
 	}
 
 	/// <summary>
-	/// Visualiza a página do sharedfile (necessário para contornar algumas proteções do Steam)
-	/// </summary>
-	internal static async Task<HtmlDocumentResponse?> VisualizarPagina(string id, Bot bot, Uri requestViewPage) {
-		string cookieName = $"wants_mature_content_item_{id}";
-		string cookieValue = "1";
-
-		List<KeyValuePair<string, string>> headers = [
-			new("Cookie", $"{cookieName}={cookieValue}")
-		];
-
-		return await bot.ArchiWebHandler.UrlGetToHtmlDocumentWithSession(
-			requestViewPage,
-			headers: headers,
-			referer: SteamCommunityURL
-		).ConfigureAwait(false);
-	}
-
-	/// <summary>
 	/// Comando principal que processa múltiplos bots com rate limiting
 	/// </summary>
-	public static async Task<string?> ExecutarComando(EAccess access, ulong steamID, string sharedfileId, string quantidadeDesejada) {
+	public static async Task<string?> ExecutarComando(EAccess access, ulong steamID, string urlPerfil, string tipoAcao, string quantidadeDesejada) {
 		// Validação dos parâmetros
-		if (string.IsNullOrEmpty(sharedfileId) || string.IsNullOrEmpty(quantidadeDesejada)) {
-			ASF.ArchiLogger.LogNullError(null, nameof(sharedfileId) + " || " + nameof(quantidadeDesejada));
+		if (string.IsNullOrEmpty(urlPerfil) || string.IsNullOrEmpty(tipoAcao) || string.IsNullOrEmpty(quantidadeDesejada)) {
+			ASF.ArchiLogger.LogNullError(null, nameof(urlPerfil) + " || " + nameof(tipoAcao) + " || " + nameof(quantidadeDesejada));
 			return null;
 		}
+
+		// Valida tipo de ação (1 = follow, 2 = unfollow)
+		if (!int.TryParse(tipoAcao, out int tipoInt) || tipoInt < 1 || tipoInt > 2) {
+			return access >= EAccess.Owner ? FormatarResposta("Tipo inválido. Use: 1 (follow), 2 (unfollow)") : null;
+		}
+
+		ETipoAcao tipo = (ETipoAcao) tipoInt;
 
 		if (!int.TryParse(quantidadeDesejada, out int numEnviosDesejados) || numEnviosDesejados <= 0) {
 			return access >= EAccess.Owner ? FormatarResposta("Quantidade inválida. Use um número positivo.") : null;
@@ -147,7 +147,7 @@ internal static class CSharedFav {
 			return access >= EAccess.Owner ? FormatarResposta(Strings.BotNotFound) : null;
 		}
 
-		// Verifica quantos bots estão online (favoritos funcionam com contas limitadas)
+		// Verifica quantos bots estão online
 		int botsOnline = 0;
 		foreach (Bot bot in bots) {
 			if (bot.IsConnectedAndLoggedOn) {
@@ -161,17 +161,12 @@ internal static class CSharedFav {
 				: null;
 		}
 
-		// Obtém o AppID do sharedfile usando o primeiro bot disponível
-		Bot firstBot = bots.First(b => b.IsConnectedAndLoggedOn);
-		string? appId = await SessionHelper.FetchAppIDShared(
-			firstBot,
-			$"https://steamcommunity.com/sharedfiles/filedetails/?id={sharedfileId}",
-			sharedfileId
-		).ConfigureAwait(false);
+		// Obtém o SteamID64 do perfil alvo
+		string? steamIdAlvo = await SessionHelper.FetchSteamID64(urlPerfil).ConfigureAwait(false);
 
-		if (string.IsNullOrEmpty(appId)) {
+		if (string.IsNullOrEmpty(steamIdAlvo)) {
 			return access >= EAccess.Owner
-				? FormatarResposta($"Erro ao obter AppID do sharedfile {sharedfileId}")
+				? FormatarResposta("Erro ao obter SteamID64 do perfil")
 				: null;
 		}
 
@@ -193,11 +188,21 @@ internal static class CSharedFav {
 			}
 
 			// Verifica ANTES se já enviou (sem fazer requisição HTTP)
-			bool? jaEnviou = await DbHelper.VerificarEnvioItem(bot.BotName, "SHAREDFAV", sharedfileId).ConfigureAwait(false);
+			bool? jaEnviou = await DbHelper.VerificarEnvioItem(bot.BotName, "WORKSHOP", steamIdAlvo).ConfigureAwait(false);
 
-			// Se já enviou, simplesmente pula para o próximo bot
-			if (jaEnviou == true) {
-				continue;
+			// Lógica especial para Unfollow:
+			// - Se já seguiu antes (jaEnviou == true), permite enviar "unfollow"
+			// - Se não seguiu antes (jaEnviou == false), não faz sentido enviar "unfollow"
+			if (tipo == ETipoAcao.Unfollow) {
+				if (jaEnviou != true) {
+					// Não seguiu antes, não pode dar unfollow - apenas pula
+					continue;
+				}
+			} else {
+				// Para Follow, se já enviou, pula para o próximo bot
+				if (jaEnviou == true) {
+					continue;
+				}
 			}
 
 			// Aplica delay APENAS se a requisição anterior foi uma requisição HTTP real
@@ -208,11 +213,12 @@ internal static class CSharedFav {
 			// Aplica rate limiting para requisições reais
 			await RateLimitSemaphore.WaitAsync().ConfigureAwait(false);
 			try {
-				ResultadoEnvio resultado = await EnviarFavoritoInterno(
+				ResultadoEnvio resultado = await ExecutarAcaoInterno(
 					bot,
 					Commands.GetProxyAccess(bot, access, steamID),
-					sharedfileId,
-					appId
+					urlPerfil,
+					steamIdAlvo,
+					tipo
 				).ConfigureAwait(false);
 
 				// Bot ficou offline durante o processamento
@@ -237,7 +243,7 @@ internal static class CSharedFav {
 		}
 
 		// Monta a resposta final
-		return MontarRespostaFinal(resultados, enviosBemSucedidos, enviosFalhados, numEnviosDesejados);
+		return MontarRespostaFinal(resultados, enviosBemSucedidos, enviosFalhados, numEnviosDesejados, tipo);
 	}
 
 	/// <summary>
@@ -247,14 +253,16 @@ internal static class CSharedFav {
 		List<ResultadoEnvio> resultados,
 		int sucedidos,
 		int falhados,
-		int desejados) {
+		int desejados,
+		ETipoAcao tipo) {
 
 		List<string> linhas = [];
+		string nomeTipo = ObterNomeTipo(tipo);
 
 		// Adiciona cada resultado
 		foreach (ResultadoEnvio resultado in resultados) {
 			string status = resultado.Sucesso ? "+" : "-";
-			string detalhes = resultado.Sucesso ? "FAV" : resultado.Mensagem;
+			string detalhes = resultado.Sucesso ? nomeTipo : resultado.Mensagem;
 			linhas.Add($"<{resultado.BotName}> [{status}] {detalhes}");
 		}
 
@@ -265,10 +273,13 @@ internal static class CSharedFav {
 		// Aviso se não conseguiu atingir o número desejado
 		if (sucedidos < desejados) {
 			int faltando = desejados - sucedidos;
-			linhas.Add($"Aviso: Faltaram {faltando} (já enviados ou indisponíveis)");
+			string motivo = tipo == ETipoAcao.Unfollow
+				? "bots não seguiam antes"
+				: "bots já seguiam ou indisponíveis";
+			linhas.Add($"Aviso: Faltaram {faltando} ({motivo})");
 		}
 
-		ASF.ArchiLogger.LogGenericInfo($"Socialboost|FAV => Concluído! Sucesso: {sucedidos}, Falhas: {falhados}");
+		ASF.ArchiLogger.LogGenericInfo($"Socialboost|WORKSHOP|{nomeTipo} => Concluído! Sucesso: {sucedidos}, Falhas: {falhados}");
 
 		return string.Join(Environment.NewLine, linhas);
 	}

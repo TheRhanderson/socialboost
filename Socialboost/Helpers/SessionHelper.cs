@@ -32,7 +32,6 @@ internal static partial class SessionHelper {
 		}
 
 		string strd = response.Content.Body.InnerHtml;
-		//JsonObject htmlString = (JsonObject) response.Content.Body.OuterHtml;  // para adições futuras
 
 		Match match = FetchReviewRegex().Match(strd);
 
@@ -50,7 +49,6 @@ internal static partial class SessionHelper {
 		string cookieName = $"wants_mature_content_item_{id}";
 		string cookieValue = "1";
 
-		// Crie a lista de headers com o cookie personalizado
 		List<KeyValuePair<string, string>> checkcontas = [new("Cookie", $"{cookieName}={cookieValue}")];
 
 		HtmlDocumentResponse? response = await firstBot.ArchiWebHandler.UrlGetToHtmlDocumentWithSession(uri2, referer: SteamCommunityURL, headers: checkcontas).ConfigureAwait(false); // await ASF.WebBrowser!.UrlGetToHtmlDocument(uri2, referer: SteamCommunityURL).ConfigureAwait(false);
