@@ -1,4 +1,4 @@
-![SOCIALBOOST](https://github.com/TheRhanderson/socialboost-asf/assets/24517851/2623fdd1-80b3-4f50-8de8-5355094fb972)
+![SOCIALBOOST](https://i.postimg.cc/FFjbTcgP/302407373-2623fdd1-80b3-4f50-8de8-5355094fb972.png)
 
 <div align="center">
 
