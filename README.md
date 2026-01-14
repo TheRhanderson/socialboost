@@ -113,7 +113,7 @@ CREPORTABUSE 14 https://steamcommunity.com/profiles/76561198000000000 Conta+foi+
 ```
 Isso envia 5 denúncias de abuso com o motivo "Conta foi comprometida".
 
-> 🛡️ Este recurso foi removido deste repositório porque não está alinhado com o proósito do plugin.
+> 🛡️ Este recurso foi removido deste repositório porque não está alinhado com o propósito do plugin.
 
 ---
 
