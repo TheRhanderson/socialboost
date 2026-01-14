@@ -38,7 +38,7 @@ Isso envia 10 curtidas e 10 favoritos para o sharedfile com ID `3142209500`.
 
 ---
 
-### ⭐ Avaliações de Jogos
+### ⭐ Análise de Jogo feito por usuários
 
 Potencialize as análises de jogos feitas por alguém
 
