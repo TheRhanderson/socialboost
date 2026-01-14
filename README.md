@@ -4,8 +4,8 @@
 
 # SocialBoost - Potencializando Interações no ArchiSteamFarm
 
-![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/TheRhanderson/socialboost/total.svg?label=Downloads&logo=github&cacheSeconds=600)
-![GitHub Release](https://img.shields.io/github/v/release/TheRhanderson/socialboost.svg?label=Stable&logo=github&cacheSeconds=600)
+[![Total downloads](https://img.shields.io/github/downloads/TheRhanderson/socialboost/total.svg?label=Downloads&logo=github&cacheSeconds=600)](https://github.com/TheRhanderson/socialboost/releases)
+[![Socialboost Release](https://img.shields.io/github/v/release/TheRhanderson/socialboost.svg?label=Stable&logo=github&cacheSeconds=600)](https://github.com/TheRhanderson/socialboost/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **SocialBoost** é um plugin complementar para ArchiSteamFarm, projetado para melhorar as interações na plataforma Steam. Este plugin oferece recursos para potencializar o número de curtidas e favoritos em imagens, guias e vários tipos de conteúdo. Também permite avaliações de jogos do usuário (Útil/Engraçado) e permite seguir Workshop de jogadores, com mais recursos em breve.
