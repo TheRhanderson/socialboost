@@ -157,6 +157,8 @@ CHECKBOOST [Tipo] [Id]
 CHECKBOOST sharedlike 3142209500
 ```
 
+> 🛡️ Este recurso ainda não foi importado da versão antiga do SocialBoost.
+
 ---
 
 ## 📥 Como Instalar
