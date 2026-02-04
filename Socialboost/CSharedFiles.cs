@@ -291,10 +291,30 @@ internal static class CSharedFiles {
 			return access >= EAccess.Owner ? FormatarResposta(Strings.BotNotFound) : null;
 		}
 
-		// Verifica quantos bots estão online
+		// === Obtém o AppID do sharedfile (opcional para blacklist) ===
+		Bot firstBot = bots.First(b => b.IsConnectedAndLoggedOn);
+		string? appId = await AppIdHelper.ObterAppIdDoSharedfile(firstBot, sharedfileId).ConfigureAwait(false);
+
+		HashSet<string> botsBlacklisted = [];
+
+		if (!string.IsNullOrEmpty(appId)) {
+			// === Obtém bots na blacklist ===
+			botsBlacklisted = await BlacklistHelper.ObterBotsNaBlacklist(appId).ConfigureAwait(false);
+			if (botsBlacklisted.Count > 0) {
+				ASF.ArchiLogger.LogGenericInfo($"Socialboost|SHAREDFILES => {botsBlacklisted.Count} bot(s) na blacklist do AppID {appId}");
+			}
+		} else {
+			ASF.ArchiLogger.LogGenericWarning($"Socialboost|SHAREDFILES => Não foi possível obter AppID, sistema de blacklist desabilitado para este sharedfile");
+		}
+
+		if (botsBlacklisted.Count > 0) {
+			ASF.ArchiLogger.LogGenericInfo($"Socialboost|SHAREDFILES => {botsBlacklisted.Count} bot(s) na blacklist do AppID {appId}");
+		}
+
+		// Verifica quantos bots estão online (e não na blacklist)
 		int botsOnline = 0;
 		foreach (Bot bot in bots) {
-			if (bot.IsConnectedAndLoggedOn) {
+			if (bot.IsConnectedAndLoggedOn && !botsBlacklisted.Contains(bot.BotName)) {
 				botsOnline++;
 			}
 		}
@@ -302,20 +322,6 @@ internal static class CSharedFiles {
 		if (botsOnline < numEnviosDesejados) {
 			return access >= EAccess.Owner
 				? FormatarResposta($"Bots online disponíveis: {botsOnline}. Necessário: {numEnviosDesejados}")
-				: null;
-		}
-
-		// Obtém o AppID do sharedfile usando o primeiro bot disponível
-		Bot firstBot = bots.First(b => b.IsConnectedAndLoggedOn);
-		string? appId = await SessionHelper.FetchAppIDShared(
-			firstBot,
-			$"https://steamcommunity.com/sharedfiles/filedetails/?id={sharedfileId}",
-			sharedfileId
-		).ConfigureAwait(false);
-
-		if (string.IsNullOrEmpty(appId)) {
-			return access >= EAccess.Owner
-				? FormatarResposta($"Erro ao obter AppID do sharedfile {sharedfileId}")
 				: null;
 		}
 
@@ -331,6 +337,11 @@ internal static class CSharedFiles {
 			// Para se já atingiu o número desejado de AMBOS (likes E favs)
 			if (likesEnviados >= numEnviosDesejados && favsEnviados >= numEnviosDesejados) {
 				break;
+			}
+
+			// === NOVO: Pula bots na blacklist ===
+			if (botsBlacklisted.Contains(bot.BotName)) {
+				continue;
 			}
 
 			// Pula bots offline
@@ -359,7 +370,7 @@ internal static class CSharedFiles {
 					bot,
 					Commands.GetProxyAccess(bot, access, steamID),
 					sharedfileId,
-					appId,
+					appId!,
 					jaEnviouLike == true,
 					jaEnviouFav == true
 				).ConfigureAwait(false);
@@ -367,6 +378,11 @@ internal static class CSharedFiles {
 				// Bot offline durante o processamento (raro, mas possível)
 				if (resultado.BotOffline) {
 					continue;
+				}
+
+				// === Se detectou VAC ban, adiciona à blacklist (se tiver AppID) ===
+				if (resultado.VacBan && !string.IsNullOrEmpty(appId)) {
+					await BlacklistHelper.AdicionarBotNaBlacklist(bot.BotName, appId).ConfigureAwait(false);
 				}
 
 				resultados.Add(resultado);

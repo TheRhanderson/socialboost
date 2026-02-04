@@ -16,7 +16,7 @@ internal sealed class Socialboost : IGitHubPluginUpdates, IBotCommand2, IPlugin 
 	public Version Version => typeof(Socialboost).Assembly.GetName().Version ?? throw new InvalidOperationException(nameof(Version));
 
 	public Task OnLoaded() {
-		ASF.ArchiLogger.LogGenericInfo($"SocialBoost 1.4.0.0 (.NET 10 ASF 3.6.1.6)");
+		ASF.ArchiLogger.LogGenericInfo($"SocialBoost 1.4.2.0 (.NET 10 ASF 3.6.1.6)");
 
 		return Task.CompletedTask;
 	}

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -193,10 +194,30 @@ internal static class CSharedLike {
 			return access >= EAccess.Owner ? FormatarResposta(Strings.BotNotFound) : null;
 		}
 
-		// Verifica quantos bots estão online e disponíveis (não limitados)
+		// === Obtém o AppID do sharedfile (opcional para blacklist) ===
+		Bot firstBot = bots.First(b => b.IsConnectedAndLoggedOn);
+		string? appId = await AppIdHelper.ObterAppIdDoSharedfile(firstBot, sharedfileId).ConfigureAwait(false);
+
+		HashSet<string> botsBlacklisted = [];
+
+		if (!string.IsNullOrEmpty(appId)) {
+			// === Obtém bots na blacklist ===
+			botsBlacklisted = await BlacklistHelper.ObterBotsNaBlacklist(appId).ConfigureAwait(false);
+			if (botsBlacklisted.Count > 0) {
+				ASF.ArchiLogger.LogGenericInfo($"Socialboost|LIKE => {botsBlacklisted.Count} bot(s) na blacklist do AppID {appId}");
+			}
+		} else {
+			ASF.ArchiLogger.LogGenericWarning($"Socialboost|LIKE => Não foi possível obter AppID, sistema de blacklist desabilitado para este sharedfile");
+		}
+
+		if (botsBlacklisted.Count > 0) {
+			ASF.ArchiLogger.LogGenericInfo($"Socialboost|LIKE => {botsBlacklisted.Count} bot(s) na blacklist do AppID {appId}");
+		}
+
+		// Verifica quantos bots estão online e disponíveis (não limitados e não na blacklist)
 		int botsOnline = 0;
 		foreach (Bot bot in bots) {
-			if (bot.IsConnectedAndLoggedOn && !bot.IsAccountLimited) {
+			if (bot.IsConnectedAndLoggedOn && !bot.IsAccountLimited && !botsBlacklisted.Contains(bot.BotName)) {
 				botsOnline++;
 			}
 		}
@@ -217,6 +238,11 @@ internal static class CSharedLike {
 			// Para se já atingiu o número desejado de ENVIOS BEM SUCEDIDOS
 			if (enviosBemSucedidos >= numEnviosDesejados) {
 				break;
+			}
+
+			// === NOVO: Pula bots na blacklist ===
+			if (botsBlacklisted.Contains(bot.BotName)) {
+				continue;
 			}
 
 			// Pula bots offline ou com conta limitada
@@ -251,7 +277,11 @@ internal static class CSharedLike {
 					continue;
 				}
 
-				
+				// === Se detectou VAC ban, adiciona à blacklist (se tiver AppID) ===
+				if (resultado.VacBan && !string.IsNullOrEmpty(appId)) {
+					await BlacklistHelper.AdicionarBotNaBlacklist(bot.BotName, appId).ConfigureAwait(false);
+				}
+
 				resultados.Add(resultado);
 
 				if (resultado.Sucesso) {
