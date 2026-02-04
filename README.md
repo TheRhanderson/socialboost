@@ -116,14 +116,24 @@ Isso envia 5 denúncias de abuso com o motivo "Conta foi comprometida".
 
 ---
 
-## 📊 Gerenciamento Automático
+## 📊 Gerenciamento Automático e Inteligente
 
-O SocialBoost inclui um sistema inteligente de gerenciamento de contas através de um banco de dados local localizado na pasta `/plugins`.
+O SocialBoost gerencia suas contas de forma inteligente através de dois sistemas complementares:
 
-**Recursos:**
-- 🗄️ Rastreia contas usadas para envios específicos
-- 🔄 Evita reutilização de contas para o mesmo envio
-- 📈 Verifica bots disponíveis antes de enviar
+### 🗄️ Banco de Dados de Rastreamento
+- **Localização:** `/plugins/SocialBoost/`
+- Registra todos os envios realizados por cada conta
+- Evita duplicação de envios para o mesmo item
+- Otimiza requisições HTTP pulando contas já utilizadas
+
+### 🚫 Blacklist Automática por AppID
+- **Localização:** `/plugins/SocialBoost/blacklist-{appid}.txt`
+- Detecta automaticamente contas com VAC ban
+- Bloqueia contas problemáticas por jogo específico
+- Previne desperdício de requisições em contas inelegíveis
+- **Totalmente automático** - sem configuração necessária
+
+> 💡 Quando uma conta retorna erro de VAC ban (código 17), ela é automaticamente adicionada à blacklist do jogo correspondente, garantindo eficiência máxima nos próximos comandos.
 
 ### Verificar Bots Disponíveis
 
