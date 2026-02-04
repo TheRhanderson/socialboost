@@ -10,6 +10,7 @@ using ArchiSteamFarm.Steam.Interaction;
 using ArchiSteamFarm.Web.Responses;
 using Socialboost.Helpers;
 using static ArchiSteamFarm.Steam.Integration.ArchiWebHandler;
+using static Socialboost.CSharedLike;
 
 namespace Socialboost;
 
@@ -37,6 +38,7 @@ internal static class CSharedFiles {
 		public bool JaEnviado { get; init; }
 		public bool ContaLimitada { get; init; }
 		public bool BotOffline { get; init; }
+		public bool VacBan { get; set; }
 
 		/// <summary>
 		/// Retorna true se pelo menos uma ação foi bem-sucedida
@@ -55,13 +57,12 @@ internal static class CSharedFiles {
 	/// Versão interna que recebe os flags de já enviado para evitar verificações duplicadas
 	/// </summary>
 	internal static async Task<ResultadoCombinado> EnviarLikeEFavoritoInterno(
-		Bot bot,
-		EAccess access,
-		string id,
-		string appId,
-		bool jaEnviouLike,
-		bool jaEnviouFav) {
-
+	Bot bot,
+	EAccess access,
+	string id,
+	string appId,
+	bool jaEnviouLike,
+	bool jaEnviouFav) {
 		// Verifica permissão
 		if (access < EAccess.Master) {
 			return new ResultadoCombinado {
@@ -103,6 +104,7 @@ internal static class CSharedFiles {
 		bool favSucesso = false;
 		string favMensagem = "Não enviado";
 		bool contaLimitadaParaLike = false;
+		bool vacBanParaLike = false;
 
 		// === ENVIO DO LIKE ===
 		if (!jaEnviouLike) {
@@ -111,7 +113,11 @@ internal static class CSharedFiles {
 				likeMensagem = "Conta limitada";
 				contaLimitadaParaLike = true;
 			} else {
-				(likeSucesso, likeMensagem) = await EnviarLikeInterno(bot, id, requestViewPage).ConfigureAwait(false);
+				(likeSucesso, likeMensagem, bool isVacBan) = await EnviarLikeInterno(bot, id, requestViewPage).ConfigureAwait(false);
+
+				if (isVacBan) {
+					vacBanParaLike = true;
+				}
 
 				if (likeSucesso) {
 					await DbHelper.AdicionarEnvioItem(bot.BotName, "SHAREDLIKE", id).ConfigureAwait(false);
@@ -128,7 +134,6 @@ internal static class CSharedFiles {
 		if (!jaEnviouFav) {
 			// Favoritos funcionam mesmo com contas limitadas
 			(favSucesso, favMensagem) = await EnviarFavoritoInterno(bot, id, appId, requestViewPage).ConfigureAwait(false);
-
 			if (favSucesso) {
 				await DbHelper.AdicionarEnvioItem(bot.BotName, "SHAREDFAV", id).ConfigureAwait(false);
 			}
@@ -147,7 +152,8 @@ internal static class CSharedFiles {
 			LikeMensagem = likeMensagem,
 			FavSucesso = favSucesso,
 			FavMensagem = favMensagem,
-			ContaLimitada = contaLimitadaParaLike
+			ContaLimitada = contaLimitadaParaLike,
+			VacBan = vacBanParaLike
 		};
 	}
 
@@ -178,26 +184,48 @@ internal static class CSharedFiles {
 	/// Envia o like internamente e retorna o resultado
 	/// Usa UrlPostWithSession (mesmo método do código original que funciona)
 	/// </summary>
-	private static async Task<(bool sucesso, string mensagem)> EnviarLikeInterno(Bot bot, string id, Uri referer) {
+	private static async Task<(bool sucesso, string mensagem, bool isVacBan)> EnviarLikeInterno(
+	Bot bot,
+	string id,
+	Uri requestViewPage) {
+
 		Uri requestUrl = new(SteamCommunityURL, "/sharedfiles/voteup");
 
 		Dictionary<string, string> data = new(1) {
-			{ "id", id }
-		};
+		{ "id", id }
+	};
 
-		// Usa o mesmo método do código original que funciona
-		bool postSuccess = await bot.ArchiWebHandler.UrlPostWithSession(
+		// Envia a requisição POST e obtém a resposta JSON
+		ObjectResponse<SteamVoteResponse>? response = await bot.ArchiWebHandler.UrlPostToJsonObjectWithSession<SteamVoteResponse>(
 			requestUrl,
 			data: data,
 			session: ESession.Lowercase,
-			referer: referer
+			referer: requestViewPage
 		).ConfigureAwait(false);
 
-		if (postSuccess) {
-			return (true, "OK");
+		if (response?.Content == null) {
+			bot.ArchiLogger.LogGenericError($"Socialboost|SHAREDLIKE => {id} (FALHA: Resposta nula)");
+			return (false, "Erro HTTP", false);
 		}
 
-		return (false, "Erro HTTP");
+		// Verifica o código de sucesso
+		if (response.Content.Success == 1) {
+			// Verifica também o resultado específico do item
+			if (response.Content.Results?.TryGetValue(id, out int itemResult) == true && itemResult == 1) {
+				bot.ArchiLogger.LogGenericInfo($"Socialboost|SHAREDLIKE => {id} (OK)");
+				return (true, "OK", false);
+			}
+		}
+
+		// Verifica se é erro por VAC ban (código 17)
+		if (response.Content.Success == 17 ||
+			(response.Content.Results?.TryGetValue(id, out int vacResult) == true && vacResult == 17)) {
+			bot.ArchiLogger.LogGenericWarning($"Socialboost|SHAREDLIKE => {id} (FALHA: VAC Ban)");
+			return (false, "VAC", true);
+		}
+
+		bot.ArchiLogger.LogGenericError($"Socialboost|SHAREDLIKE => {id} (FALHA: Código {response.Content.Success})");
+		return (false, $"Erro {response.Content.Success}", false);
 	}
 
 	/// <summary>

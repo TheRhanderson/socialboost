@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using ArchiSteamFarm.Core;
@@ -30,6 +31,7 @@ internal static class CSharedLike {
 		public bool JaEnviado { get; init; }
 		public bool ContaLimitada { get; init; }
 		public bool BotOffline { get; init; }
+		public bool VacBan { get; set; }
 	}
 
 	/// <summary>
@@ -81,39 +83,77 @@ internal static class CSharedLike {
 		}
 
 		Dictionary<string, string> data = new(1) {
-			{ "id", id }
-		};
+		{ "id", id }
+	};
 
-		// Envia a requisição POST
-		bool postSuccess = await bot.ArchiWebHandler.UrlPostWithSession(
+		// Envia a requisição POST e obtém a resposta JSON
+		ObjectResponse<SteamVoteResponse>? response = await bot.ArchiWebHandler.UrlPostToJsonObjectWithSession<SteamVoteResponse>(
 			requestUrl,
 			data: data,
 			session: ESession.Lowercase,
 			referer: requestViewPage
 		).ConfigureAwait(false);
 
-		if (postSuccess) {
-			// Salva no banco de dados
-			bool? salvou = await DbHelper.AdicionarEnvioItem(bot.BotName, "SHAREDLIKE", id).ConfigureAwait(false);
-			if (salvou != true) {
-				bot.ArchiLogger.LogGenericWarning($"Socialboost|SHAREDLIKE => {id} (Like enviado, mas falha ao salvar no DB)");
-			}
-
-			bot.ArchiLogger.LogGenericInfo($"Socialboost|SHAREDLIKE => {id} (OK)");
+		if (response?.Content == null) {
+			bot.ArchiLogger.LogGenericError($"Socialboost|SHAREDLIKE => {id} (FALHA: Resposta nula)");
 			return new ResultadoEnvio {
 				BotName = bot.BotName,
-				Sucesso = true,
-				Mensagem = "OK"
+				Sucesso = false,
+				Mensagem = "Erro HTTP"
 			};
 		}
 
-		bot.ArchiLogger.LogGenericError($"Socialboost|SHAREDLIKE => {id} (FALHA: Erro HTTP)");
+		// Verifica o código de sucesso
+		if (response.Content.Success == 1) {
+			// Verifica também o resultado específico do item
+			if (response.Content.Results?.TryGetValue(id, out int itemResult) == true && itemResult == 1) {
+				// Salva no banco de dados
+				bool? salvou = await DbHelper.AdicionarEnvioItem(bot.BotName, "SHAREDLIKE", id).ConfigureAwait(false);
+				if (salvou != true) {
+					bot.ArchiLogger.LogGenericWarning($"Socialboost|SHAREDLIKE => {id} (Like enviado, mas falha ao salvar no DB)");
+				}
+
+				bot.ArchiLogger.LogGenericInfo($"Socialboost|SHAREDLIKE => {id} (OK)");
+				return new ResultadoEnvio {
+					BotName = bot.BotName,
+					Sucesso = true,
+					Mensagem = "OK"
+				};
+			}
+		}
+
+		// Verifica se é erro por VAC ban (código 17)
+		if (response.Content.Success == 17 ||
+			(response.Content.Results?.TryGetValue(id, out int vacResult) == true && vacResult == 17)) {
+			bot.ArchiLogger.LogGenericWarning($"Socialboost|SHAREDLIKE => {id} (FALHA: VAC Ban)");
+			return new ResultadoEnvio {
+				BotName = bot.BotName,
+				Sucesso = false,
+				Mensagem = "VAC",
+				VacBan = true
+			};
+		}
+
+		bot.ArchiLogger.LogGenericError($"Socialboost|SHAREDLIKE => {id} (FALHA: Código {response.Content.Success})");
 		return new ResultadoEnvio {
 			BotName = bot.BotName,
 			Sucesso = false,
-			Mensagem = "Erro HTTP"
+			Mensagem = $"Erro {response.Content.Success}"
 		};
 	}
+
+#pragma warning disable CA1812 // Avoid uninstantiated internal classes
+	internal sealed class SteamVoteResponse {
+		[JsonPropertyName("success")]
+		public int Success { get; set; }
+
+		[JsonPropertyName("items")]
+		public List<string>? Items { get; set; }
+
+		[JsonPropertyName("results")]
+		public Dictionary<string, int>? Results { get; set; }
+	}
+#pragma warning restore CA1812
 
 	/// <summary>
 	/// Visualiza a página do sharedfile (necessário para contornar algumas proteções do Steam)
